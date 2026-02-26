@@ -10,7 +10,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
-from email.utils import formataddr # 新增：专门用于解决 QQ 邮箱发件人格式验证的库
+from email.utils import formataddr
 import markdown
 
 # ==========================================
@@ -32,7 +32,6 @@ EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVERS = os.getenv("EMAIL_RECEIVERS")
 SMTP_SERVER = "smtp.qq.com" 
-SMTP_PORT = 465             
 
 TRIGGER_EVENT = os.getenv("TRIGGER_EVENT", "schedule")
 
@@ -138,21 +137,33 @@ def send_email(subject, markdown_content):
     """
 
     msg = MIMEMultipart()
-    
-    # --- 修复核心：使用 formataddr 标准化发件人和收件人 ---
     msg['From'] = formataddr(("威海商业情报助手", EMAIL_SENDER))
     msg['To'] = ", ".join(receivers_list)
     msg['Subject'] = Header(subject, 'utf-8')
     msg.attach(MIMEText(full_html, 'html', 'utf-8'))
 
+    # 网络重试双保险逻辑
     try:
-        server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
+        print("尝试使用 SSL (端口 465) 发送邮件...")
+        # 增加 timeout 防止网络黑洞卡死
+        server = smtplib.SMTP_SSL(SMTP_SERVER, 465, timeout=15)
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.sendmail(EMAIL_SENDER, receivers_list, msg.as_string())
         server.quit()
-        print(f"✅ 邮件已成功发送至: {', '.join(receivers_list)}")
-    except Exception as e:
-        print(f"❌ 邮件发送失败: {e}")
+        print(f"✅ 邮件已通过 465 端口成功发送至: {', '.join(receivers_list)}")
+    except Exception as e1:
+        print(f"⚠️ 465 端口网络请求失败 ({e1})")
+        print("🔄 正在尝试备用方案 STARTTLS (端口 587)...")
+        try:
+            time.sleep(3) # 缓冲几秒
+            server = smtplib.SMTP(SMTP_SERVER, 587, timeout=15)
+            server.starttls() # 启用安全传输
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, receivers_list, msg.as_string())
+            server.quit()
+            print(f"✅ 邮件已通过备用端口 587 成功发送至: {', '.join(receivers_list)}")
+        except Exception as e2:
+            print(f"❌ 邮件发送最终失败: {e2}")
 
 # --- 主程序入口 ---
 if __name__ == "__main__":
