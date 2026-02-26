@@ -1,8 +1,8 @@
-name: Weekly Weihai Business Briefing (Email Version)
+name: Weekly Weihai Business Briefing (Gemini Edition)
 
 on:
   schedule:
-    - cron: '0 1 * * 1-5' # 北京时间早9点运行
+    - cron: '0 1 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -18,22 +18,23 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        # 新增了 markdown 库，用于将简报转为精美的网页格式邮件
         run: |
           pip install requests openai chinesecalendar markdown
 
-      - name: Run LLM Briefing Script
+      - name: Run Briefing Script
         env:
-          # --- 业务变量 (在 Variables 中配置) ---
-          TARGET_COMPANIES: ${{ vars.TARGET_COMPANIES }} 
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          # ==========================================
+          # AI 配置
+          # ==========================================
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}
+          GEMINI_MODEL_FALLBACK: ${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash' }}
+          GEMINI_REQUEST_DELAY: '3.0'
           
-          # --- 敏感密钥 (在 Secrets 中配置) ---
+          # ==========================================
+          # 搜索与邮件配置
+          # ==========================================
           SEARCH_API_KEY: ${{ secrets.SEARCH_API_KEY }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          
-          # --- 邮件配置 (在 Secrets 中配置) ---
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECEIVERS: ${{ secrets.EMAIL_RECEIVERS }}
