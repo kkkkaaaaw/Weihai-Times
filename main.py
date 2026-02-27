@@ -15,15 +15,15 @@ import markdown
 # ==========================================
 # 1. 变量解析与环境加载
 # ==========================================
-raw_companies = os.getenv("TARGET_COMPANIES") or "山东未来机器人有限公司 威海广泰 威海国际经济技术合作股份有限公司"
+raw_companies = os.getenv("TARGET_COMPANIES") or "山东未来机器人有限公司 威海广泰 威海国际经济技术合作股份有限公司 双丰物探 威尔海姆 迪尚集团"
 TARGET_COMPANIES = raw_companies.replace('、', ' ').replace('，', ' ') 
 
-raw_industry = os.getenv("TARGET_INDUSTRY") or "工程承包 橡胶轮胎 医疗器械"
+raw_industry = os.getenv("TARGET_INDUSTRY") or "工程承包 橡胶轮胎 医疗器械 油气装备 机器人"
 INDUSTRY_LIST = [i for i in raw_industry.replace('、', ' ').replace('，', ' ').split() if i]
 
 SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") # 修复了上一版可能存在的模型名称错误
 GEMINI_REQUEST_DELAY = float(os.getenv("GEMINI_REQUEST_DELAY", "3.0"))
 
 CUSTOM_API_KEY = os.getenv("CUSTOM_API_KEY")
@@ -38,19 +38,18 @@ SMTP_SERVER = "smtp.qq.com"
 TODAY_STR = datetime.date.today().strftime("%Y年%m月%d日")
 
 # ==========================================
-# 2. 增强搜索函数 (加入防污染白名单机制 include_domains)
+# 2. 增强搜索函数 (移除干扰词)
 # ==========================================
 def search_info(query, days=7, max_results=15, include_domains=None):
     url = "https://api.tavily.com/search"
     payload = {
         "api_key": SEARCH_API_KEY,
-        "query": f"{query} (current week {TODAY_STR})",
+        "query": query, # 移除了强拼凑的中文日期，防止语义污染
         "search_depth": "advanced",
         "include_answer": False, 
         "days": days,
         "max_results": max_results
     }
-    # 如果传入了白名单，则限制只在这些域名内搜索
     if include_domains:
         payload["include_domains"] = include_domains
 
@@ -74,85 +73,79 @@ def generate_briefing(client, model_name, is_gemini, comp_raw, weihai_raw, ind_d
         ind_context += f"--- 行业: {ind} ---\n{content}\n"
 
     prompt = f"""
-    【角色】
-    你是来自顶尖投行研究所的首席经济师，专精于宏观政治经济、国际金融、外贸行业动态以及高科技行业分析。今天是{TODAY_STR}。所有新闻必须是本周最新动态。禁止修辞。
+    【全局核心设定】
+    1. 角色：顶尖投行研究所首席经济师。无修辞，无客套，极端客观。今天是{TODAY_STR}。
+    2. 辖区绝对定义：下文中所有提到“大威海地区”、“威海市辖区”、“威海本地”的概念，均【严格且仅包含】威海、荣成、文登、乳山四个区域。
+    3. 严禁旧闻：仔细核查URL和内容年份，非近期内容一律舍弃。特例：LMSYS榜单无更新时输出特定话术。
 
     【极度严厉的排版与格式指令】
-    1. 必须首先生成【目录】，然后输出正文。
-    2. 【目录排版要求】：
-       绝对禁止把目录连成一段！为了精确控制字号（标题18px不加粗，正文14px），请在生成【目录】部分时，放弃 Markdown，严格照抄以下 HTML 格式，每个条目前加序号并紧跟 `<br>` 标签换行：
-
+    1. 必须首先生成【目录】，严格照抄以下 HTML 格式：
        <h3 style="color: #1a365d; font-size: 18px; font-weight: normal; margin-top: 20px; margin-bottom: 10px;">一、 重点企业动态</h3>
        <div style="font-size: 14px; color: #333; line-height: 1.8;">
        1. [新闻标题1]<br>
        2. [新闻标题2]<br>
-       ...
        </div>
-       （其余板块以此类推，必须严格使用 <h3> 和 <div><br> 结构！）
+    2. 正文部分格式指令：
+       正文所有板块的每一条新闻，【绝对禁止使用 Markdown 列表(* 或 -)】，必须严格使用以下 HTML 结构框定，以确保字号精确递减：
+       <div style="margin-bottom: 20px;">
+         <div style="font-size: 14px; font-weight: bold; color: #333;">[序号]. [标题]</div>
+         <div style="font-size: 14px; color: #333; line-height: 1.6; margin-top: 4px;">[用三句话精确概括核心事件、商业动作及影响]</div>
+         <div style="font-size: 12px; color: #666; margin-top: 4px;">关键词：[词1] | [词2]</div>
+         <div style="font-size: 10px; color: #999; margin-top: 4px;">来源：<a href="[URL]" style="color: #3498db; text-decoration: none;">[URL]</a></div>
+       </div>
 
-    3. 正文部分：恢复使用 Markdown。所有新闻的要素必须【垂直排版，另起一行】。
+    【六大板块内容架构（基于下方素材池）】
+    一、 重点企业动态（15条）：
+        必须优先包含给定目标企业（{TARGET_COMPANIES}）的最新商业动态。其次补充威海市辖区内其他产品受海外认可、商业模式可行、符合新质生产力的优质产能企业。
+    
+    二、 威海本地政经（8条）：
+        绝对排斥文化、旅游、社会奇闻。必须且只能聚焦：威海市辖区的宏观经济、重大招商引资、外经外贸政策、国际产能合作。
 
-    【绝对时效性与 URL 年份查杀机制（防旧闻生死红线）】
-    1. 你必须同步核查“文章发布时间”与“事件真实发生时间”。
-    2. URL 查杀：仔细检查我提供的每一个【来源】URL。如果网址中包含 "2025"、"2024"、"2023" 或不属于本月的日期路径，说明是过期废料，【绝对禁止使用该条素材】！
-    3. 特例容错：如果在 lmsys.org 素材中找不到最近几天发布的新榜单，请不要强行编造，直接在第六部分第1条输出：“1. **LMSYS 官方排行榜本周无显著变动**\\n梗概：LMSYS 官方本周暂未发布新的大模型综合跑分变动。\\n关键词：LMSYS | 榜单稳定\\n来源：https://lmsys.org”
+    三、 行业风向（每个行业2条）：
+        针对素材池中的行业。禁止聚焦单一企业公关稿，必须提炼为券商研报视角的“行业级”发展、政策或宏观趋势。
+        标题强制格式：[XX行业国内动态] 和 [XX行业国际动态]。每个行业必须配齐一内一外。
 
-    【六大板块内容架构（不准缺漏）】
-    一、 重点企业动态（必须15条）：
-        包含指定企业，同时深挖大威海地区（威海、文登、荣成、乳山）符合“商业模式走得通、海外买家认可的新质生产力”的优质产能企业。。
-        每条格式：
-        序号. **[新闻标题]**
-        [用三句话精确概括核心事件、商业动作及影响]
-        关键词：[词1] | [词2]
-        来源：[URL地址]
+    四、 金融与银行（8条）：
+        分两部分严格筛选：
+        1. 金融宏观（5条）：外贸及出海企业高度关注的硬指标（LPR、法定存款准备金率、美联储联邦基金利率，以及USD、EUR、JPY、GBP兑人民币汇率的重大变化）。
+        2. 本地银行（3条）：威海市辖区内开展业务的银行，关于跨境结算、国际业务便利化、对公出海信贷的政策新闻（禁止收录个人压岁钱、零售理财等无关新闻）。
 
-    二、 威海本地政经（必须8条）：
-        国内焦点 4条 + 国际与出海合作 4条。每条格式同上。
+    五、 宏观与全球重点局势（7条）：
+        国内政治经济与国际政治经济重大新闻。国内3条，国际4条。
 
-    三、 行业风向（不受固定条数限制）：
-        针对以下行业：{list(ind_data_dict.keys())}。每个行业必须提供 1条国内 + 1条国外 新闻。每条格式同上。
-
-    四、 金融与银行（至少6条）：
-        包含国内外重大金融新闻（美元/日元/欧元兑人民币汇率异动、LPR基准利率、美联储利率等会影响中国企业产能转移、对外投资、对外贸易的指标及价格变化），以及威海市辖区，即威海、荣成、乳山、文登的银行对公、国际业务新闻。不要包含零售金融业务的新闻。每条格式同上。
-
-    五、 宏观与全球重点局势（必须7条）：
-        3条国内宏观 + 4条国际重点局势。每条格式同上。
-
-    六、 科技前沿与大语言模型（必须9条，严格执行 URL 年份查杀）：
-        分为三部分：
-        【大模型焦点】（4条）：第1条必为当天的权威跑分排行榜（如LMSYS）最新榜单与解读（无更新按特例输出）。第2-4条必为本周刚发生的重磅新闻。
-        【中国科技进展】（2条）：AI/机器人/新能源等本周真实突破。
-        【全球科技前沿】（3条）：全球巨头本周最新前沿动向。
-        每条格式同上。
+    六、 科技前沿与大语言模型（9条）：
+        第1条必为权威跑分排行榜（如LMSYS）最新榜单（无变动和大语言模型焦点部分一起输出大模型新闻）。随后为大语言模型焦点、中国科技进展（AI/机器人/新能源）、全球前沿动向。该部分要严格审核，保障发布时间和内容均为三日内。
 
     【素材池】
-    企业A: {comp_raw}
-    大威海政经B: {weihai_raw}
-    行业C: {ind_context}
-    金融与银行D: {finance_raw}
-    宏观E: {macro_raw}
-    大模型与科技F: {tech_raw}
+    一/重点企业: {comp_raw}
+    二/大威海政经: {weihai_raw}
+    三/行业: {ind_context}
+    四/金融与银行: {finance_raw}
+    五/宏观: {macro_raw}
+    六/科技: {tech_raw}
 
     【输出框架】：
-    # 超级威海周报
-
-    **报告日期：** {TODAY_STR} | **发件人：** 您的超级智能新闻官🤖
+    # 威海营业部超级周报
+    **报告日期：** {TODAY_STR} | ** 来自您的超级智能新闻官🤖
     ---
-
     ## 目录
-    （严格照抄 HTML 代码生成目录，不要用 Markdown）
+    （目录 HTML 代码）
     ---
-
     ## 一、 重点企业动态
-    ...
-    
+    （正文 HTML 代码）
     ## 二、 威海本地政经
-    ...
-    
-    （其余正文板块正常输出）
-
-    <p style="text-align: center;"><strong>以上为本周新闻，均为自动收集并由AI生成</strong></p>
-    <p style="text-align: center;">🤖我们下周再见🤖</p>
+    （正文 HTML 代码）
+    ## 三、 行业风向
+    （正文 HTML 代码）
+    ## 四、 金融与银行
+    （正文 HTML 代码）
+    ## 五、 宏观与全球重点局势
+    （正文 HTML 代码）
+    ## 六、 科技前沿与大语言模型
+    （正文 HTML 代码）
+    ---
+    <p style="text-align: center;"><strong>以上为本周新闻，均为自动收集并由AI生成</strong></p >
+    <p style="text-align: center;">🤖我们下周再见🤖</p >
     """
     
     if is_gemini: time.sleep(GEMINI_REQUEST_DELAY)
@@ -168,29 +161,30 @@ def generate_briefing(client, model_name, is_gemini, comp_raw, weihai_raw, ind_d
         return f"生成简报失败: {e}"
 
 # ==========================================
-# 4. 邮件发送 (恢复双端口防断网重试机制)
+# 4. 邮件发送
 # ==========================================
 def send_email(subject, markdown_content):
     if not EMAIL_SENDER or not EMAIL_PASSWORD: return
     receivers_list = [EMAIL_SENDER] if not EMAIL_RECEIVERS else [r.strip() for r in EMAIL_RECEIVERS.replace('，', ',').split(',') if r.strip()]
 
+    # 替换 Markdown 代码块标记，防止 LLM 自作主张输出 ```html
+    markdown_content = markdown_content.replace("```html", "").replace("```", "")
     html_content = markdown.markdown(markdown_content)
+    
     full_html = f"""
     <html>
     <head><style>
-        body {{ font-family: 'Microsoft YaHei', sans-serif; line-height: 1.8; color: #333; font-size: 16px; }} 
-        h1 {{ color: #1a365d; font-size: 28px; border-bottom: 3px solid #1a365d; padding-bottom: 12px; }}
-        h2 {{ color: #2c3e50; font-size: 22px; border-bottom: 1px dashed #ccc; padding-bottom: 8px; margin-top: 40px; }}
-        p {{ margin-bottom: 12px; }}
-        a {{ color: #3498db; text-decoration: none; word-break: break-all; }}
-        strong {{ color: #c0392b; }}
+        body {{ font-family: 'Microsoft YaHei', sans-serif; line-height: 1.8; color: #333; font-size: 14px; }} 
+        h1 {{ color: #1a365d; font-size: 24px; border-bottom: 2px solid #1a365d; padding-bottom: 10px; }}
+        h2 {{ color: #2c3e50; font-size: 20px; border-bottom: 1px dashed #ccc; padding-bottom: 8px; margin-top: 30px; }}
+        a {{ text-decoration: none; word-break: break-all; }}
     </style></head>
     <body>{html_content}</body>
     </html>
     """
 
     msg = MIMEMultipart()
-    msg['From'] = formataddr(("您的超级智能新闻官🤖", EMAIL_SENDER))
+    msg['From'] = formataddr(("Weihai Business Briefing", EMAIL_SENDER)) # 移除了Emoji防退信
     msg['To'] = ", ".join(receivers_list)
     msg['Subject'] = Header(subject, 'utf-8')
     msg.attach(MIMEText(full_html, 'html', 'utf-8'))
@@ -203,7 +197,7 @@ def send_email(subject, markdown_content):
         server.quit()
         print("✅ 简报发送成功 (465端口)")
     except Exception as e1:
-        print(f"⚠️ 465 端口失败 ({e1})，正在尝试备用 STARTTLS (端口 587)...")
+        print(f"⚠️ 465 端口失败 ({e1})，尝试备用 STARTTLS (端口 587)...")
         try:
             time.sleep(3) 
             server = smtplib.SMTP(SMTP_SERVER, 587, timeout=30)
@@ -221,29 +215,32 @@ def send_email(subject, markdown_content):
 if __name__ == "__main__":
     print(f"-> 启动报告生成器，当前日期: {TODAY_STR} ...")
 
-    client = OpenAI(api_key=GEMINI_API_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/") if not CUSTOM_API_KEY else OpenAI(api_key=CUSTOM_API_KEY, base_url=CUSTOM_BASE_URL)
+    client = OpenAI(api_key=GEMINI_API_KEY, base_url="[https://generativelanguage.googleapis.com/v1beta/openai/](https://generativelanguage.googleapis.com/v1beta/openai/)") if not CUSTOM_API_KEY else OpenAI(api_key=CUSTOM_API_KEY, base_url=CUSTOM_BASE_URL)
     model = GEMINI_MODEL if not CUSTOM_API_KEY else CUSTOM_MODEL
     is_gem = not bool(CUSTOM_API_KEY)
 
     print(f"-> 搜集重点与优质产能企业...")
-    comp_raw = search_info(f"{TARGET_COMPANIES} OR 威海 荣成 文登 乳山 优质产能 新质生产力 出海 重点企业 最新商业新闻", max_results=30)
+    # 拆分搜索：确保指定企业不被淹没
+    comp_raw_target = search_info(f"{TARGET_COMPANIES} 签约 中标 财报 出海 最新动态", max_results=15)
+    comp_raw_weihai = search_info("威海 OR 荣成 OR 文登 OR 乳山 制造业 优质产能 外贸 新质生产力 企业 出海 -旅游 -文娱", max_results=15)
+    comp_raw = f"【指定目标企业】\n{comp_raw_target}\n\n【威海其他优质企业】\n{comp_raw_weihai}"
     
     print("-> 搜集大威海政经...")
-    weihai_raw = search_info("威海 荣成 文登 乳山 招商引资 政策 外贸 国际合作 最新动向", max_results=20)
+    weihai_raw = search_info("威海 OR 荣成 OR 文登 OR 乳山 宏观经济 招商引资 政策 外经贸 国际产能合作 -旅游 -消费 -文化 -娱乐", max_results=20)
     
     industry_data = {}
     for ind in INDUSTRY_LIST:
-        industry_data[ind] = search_info(f"{ind} 行业 中国 国际 最新 突发新闻")
+        industry_data[ind] = search_info(f"{ind} 行业 市场规模 政策 发展趋势 全球 宏观 研报", max_results=10)
         
     print("-> 搜集金融与银行业务...")
-    finance_raw = search_info("跨境结算 美元 日元 欧元 人民币 汇率变动 LPR 联邦基金利率 威海辖区银行 外汇 政策")
+    # 拆分搜索：宏观指标与本地对公银行分离
+    finance_macro_raw = search_info("LPR 存款准备金率 美联储联邦基金利率 USD EUR JPY GBP 兑人民币 汇率 变动", max_results=10)
+    bank_raw = search_info("威海 OR 荣成 OR 文登 OR 乳山 银行 跨境结算 国际业务 外汇便利化 对公出海 -压岁钱 -个人理财", max_results=10)
+    finance_raw = f"【金融宏观数据】\n{finance_macro_raw}\n\n【威海辖区银行业务】\n{bank_raw}"
     
     print("-> 搜集宏观局势...")
     macro_raw = search_info("中国宏观经济 全球局势 国际贸易 重大新闻")
     
-    # ---------------------------------------------------------
-    # 彻底拦截：榜单官方化，媒体精细化
-    # ---------------------------------------------------------
     LMSYS_DOMAIN = ["lmsys.org"]
     TECH_MEDIA_DOMAINS = [
         "qbitai.com", "jiqizhixin.com", "36kr.com", "leiphone.com", "geekpark.net",
