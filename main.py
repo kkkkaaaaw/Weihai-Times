@@ -221,12 +221,12 @@ if __name__ == "__main__":
 
     print(f"-> 搜集重点与优质产能企业...")
     # 拆分搜索：确保指定企业不被淹没
-    comp_raw_target = search_info(f"{TARGET_COMPANIES} 签约 中标 财报 出海 最新动态", max_results=15)
+    comp_raw_target = search_info(f"{TARGET_COMPANIES} 签约 中标 财报 出海 布局 产能 最新动态", max_results=15)
     comp_raw_weihai = search_info("威海 OR 荣成 OR 文登 OR 乳山 制造业 优质产能 外贸 新质生产力 企业 出海 -旅游 -文娱", max_results=15)
     comp_raw = f"【指定目标企业】\n{comp_raw_target}\n\n【威海其他优质企业】\n{comp_raw_weihai}"
     
     print("-> 搜集大威海政经...")
-    weihai_raw = search_info("威海 OR 荣成 OR 文登 OR 乳山 宏观经济 招商引资 政策 外经贸 国际产能合作 -旅游 -消费 -文化 -娱乐", max_results=20)
+    weihai_raw = search_info("威海 OR 荣成 OR 文登 OR 乳山 宏观经济 招商引资 政策 外经贸 国际产能合作 专精特新 产业集群 -旅游 -消费 -文化 -娱乐", max_results=20)
     
     industry_data = {}
     for ind in INDUSTRY_LIST:
@@ -235,7 +235,7 @@ if __name__ == "__main__":
     print("-> 搜集金融与银行业务...")
     # 拆分搜索：宏观指标与本地对公银行分离
     finance_macro_raw = search_info("LPR 存款准备金率 美联储联邦基金利率 USD EUR JPY GBP 兑人民币 汇率 变动", max_results=10)
-    bank_raw = search_info("威海 OR 荣成 OR 文登 OR 乳山 银行 跨境结算 国际业务 外汇便利化 对公出海 -压岁钱 -个人理财", max_results=10)
+    bank_raw = search_info("威海 OR 荣成 OR 文登 OR 乳山 银行 跨境结算 国际业务 外汇便利化 对公业务 -零售金融 -个人理财", max_results=10)
     finance_raw = f"【金融宏观数据】\n{finance_macro_raw}\n\n【威海辖区银行业务】\n{bank_raw}"
     
     print("-> 搜集宏观局势...")
