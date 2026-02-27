@@ -185,6 +185,7 @@ def send_email(subject, markdown_content):
         body {{ font-family: 'Microsoft YaHei', sans-serif; line-height: 1.8; color: #333; font-size: 16px; }} 
         h1 {{ color: #1a365d; font-size: 28px; border-bottom: 3px solid #1a365d; padding-bottom: 12px; }}
         h2 {{ color: #2c3e50; font-size: 22px; border-bottom: 1px dashed #ccc; padding-bottom: 8px; margin-top: 40px; }}
+        h3 {{ color: #1a365d; font-size: 18px; margin-top: 20px; font-weight: normal; }} /* 目录标题修复：不加粗，深蓝色 */
         p {{ margin-bottom: 12px; }}
         a {{ color: #3498db; text-decoration: none; word-break: break-all; }}
         strong {{ color: #c0392b; }}
@@ -212,9 +213,8 @@ def send_email(subject, markdown_content):
 # 5. 执行主流程
 # ==========================================
 if __name__ == "__main__":
-    if TRIGGER_EVENT == "schedule" and not is_first_workday_of_week():
-        print("今日非本周首个工作日，任务跳过。")
-        sys.exit(0)
+    # 彻底删除了引发报错的幽灵代码，只要触发脚本就会无条件执行！
+    print(f"-> 启动报告生成器，当前日期: {TODAY_STR} ...")
 
     client = OpenAI(api_key=GEMINI_API_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/") if not CUSTOM_API_KEY else OpenAI(api_key=CUSTOM_API_KEY, base_url=CUSTOM_BASE_URL)
     model = GEMINI_MODEL if not CUSTOM_API_KEY else CUSTOM_MODEL
