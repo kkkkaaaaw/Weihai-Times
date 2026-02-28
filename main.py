@@ -246,13 +246,13 @@ if __name__ == "__main__":
         client = OpenAI(
             api_key=GEMINI_API_KEY, 
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            timeout=120.0
+            timeout=600.0
         )
     else:
         client = OpenAI(
             api_key=CUSTOM_API_KEY, 
             base_url=CUSTOM_BASE_URL,
-            timeout=120.0
+            timeout=600.0
         )
         
     model = GEMINI_MODEL if not CUSTOM_API_KEY else CUSTOM_MODEL
