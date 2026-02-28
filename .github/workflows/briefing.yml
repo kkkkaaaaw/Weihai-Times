@@ -34,6 +34,11 @@ jobs:
           # ==========================================
           # 2. 国产/备用模型配置 (可选)
           # ==========================================
+          # 【新增】通义千问 Qwen 专属配置
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+          QWEN_MODEL: ${{ vars.QWEN_MODEL || 'qwen-plus' }} 
+          
+          # 其他自定义大模型配置
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
           CUSTOM_BASE_URL: ${{ vars.CUSTOM_BASE_URL }}
           CUSTOM_MODEL: ${{ vars.CUSTOM_MODEL }}
