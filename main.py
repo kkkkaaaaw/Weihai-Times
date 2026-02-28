@@ -22,18 +22,9 @@ TARGET_COMPANIES = raw_companies.replace('、', ' ').replace('，', ' ')
 raw_industry = os.getenv("TARGET_INDUSTRY") or "工程承包 橡胶轮胎 医疗器械 油气装备 机器人"
 INDUSTRY_LIST = [i for i in raw_industry.replace('、', ' ').replace('，', ' ').split() if i]
 
-SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")
+BOCHA_API_KEY = os.getenv("BOCHA_API_KEY")
+BOCHA_AI_SEARCH_API_URL = "https://api.bochaai.com/v1/ai-search"
 
-# 通义千问 (Qwen) 配置项 (通过环境变量/Secret读取，不写死)
-QWEN_API_KEY = os.getenv("QWEN_API_KEY")
-QWEN_MODEL = os.getenv("QWEN_MODEL")
-
-# 自定义大模型配置项
-CUSTOM_API_KEY = os.getenv("CUSTOM_API_KEY")
-CUSTOM_BASE_URL = os.getenv("CUSTOM_BASE_URL")
-CUSTOM_MODEL = os.getenv("CUSTOM_MODEL")
-
-# Gemini 配置项 (保底)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") 
 GEMINI_REQUEST_DELAY = float(os.getenv("GEMINI_REQUEST_DELAY", "3.0"))
@@ -47,45 +38,85 @@ TODAY_STR = datetime.date.today().strftime("%Y年%m月%d日")
 CURRENT_YEAR = datetime.date.today().year
 GLOBAL_SEEN_URLS = set()
 
-# 构建正则匹配模式：匹配 2010 到 2025 的任意年份数字
+# 拦截旧闻正则
 OUTDATED_YEAR_PATTERN = re.compile(r'(201\d|202[0-5])')
 
 # ==========================================
-# 2. 增强搜索函数 (正则拦截旧闻 + 全局去重 + 文本瘦身)
+# 2. Bocha AI Search 请求与解析函数
 # ==========================================
+def _parse_bocha_response(response_dict):
+    """解析 Bocha AI Search 的纯文本网页结果，舍弃图片和模态卡"""
+    webpages = []
+    if "messages" in response_dict:
+        for message in response_dict["messages"]:
+            if message.get("content_type") == "webpage":
+                try:
+                    content = json.loads(message["content"])
+                    if "value" in content:
+                        for item in content["value"]:
+                            webpages.append({
+                                "name": item.get("name", ""),
+                                "url": item.get("url", ""),
+                                "snippet": item.get("snippet", ""),
+                                "summary": item.get("summary", "")
+                            })
+                except Exception:
+                    pass
+    return webpages
+
 def search_info(query, days=7, max_results=20, include_domains=None):
     global GLOBAL_SEEN_URLS
-    url = "https://api.tavily.com/search"
+    
+    # 根据天数映射到 Bocha 支持的 freshness 枚举值
+    freshness = "oneWeek" if days <= 7 else "noLimit"
+    
+    # 根据官方文档，域名使用 | 分隔
+    include_str = "|".join(include_domains) if include_domains else ""
+
     payload = {
-        "api_key": SEARCH_API_KEY,
-        "query": query, 
-        "search_depth": "advanced",
-        "include_answer": False, 
-        "days": days,
-        "max_results": max_results
+        "query": query,
+        "freshness": freshness,
+        "answer": False, # 关闭大模型回答
+        "stream": False, # 不采用流式响应
+        "count": min(max_results, 50) # 最多50条
     }
-    if include_domains:
-        payload["include_domains"] = include_domains
+    
+    if include_str:
+        payload["include"] = include_str
+
+    headers = {
+        "Authorization": f"Bearer {BOCHA_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
     try:
-        response = requests.post(url, json=payload).json()
+        response = requests.post(
+            url=BOCHA_AI_SEARCH_API_URL, 
+            headers=headers, 
+            data=json.dumps(payload), 
+            timeout=15
+        )
+        response.raise_for_status()
+        
+        # 解析返回的网页参考资料
+        webpages = _parse_bocha_response(response.json())
         results_str = []
-        for result in response.get('results', []):
-            # 【瘦身防超时】：截断过长的网页内容，只取前250个字符供大模型参考
-            content = result.get('content', '').replace('\n', ' ')[:250] 
-            source_url = result.get('url', '无来源链接')
+        
+        for item in webpages:
+            # 组合 snippet 和 summary 作为内容，并截断防长文本
+            raw_content = f"{item['snippet']} {item['summary']}".replace('\n', ' ')
+            content = raw_content[:250] 
+            source_url = item['url'] or '无来源链接'
 
-            # 防线1：全局去重
+            # 去重与旧闻拦截
             if source_url in GLOBAL_SEEN_URLS and source_url != '无来源链接':
                 continue
-
-            # 防线2：使用正则表达式无死角拦截旧闻 (如 20230206 会被直接抓出 2023)
-            # 如果 URL 里包含 2010-2025，或者内容里提到往年年份，直接抛弃
             if OUTDATED_YEAR_PATTERN.search(source_url) or OUTDATED_YEAR_PATTERN.search(content):
                 continue
             
             GLOBAL_SEEN_URLS.add(source_url)
-            results_str.append(f"【内容】: {content} \n【来源】: {source_url}\n")
+            results_str.append(f"【标题】: {item['name']} \n【内容】: {content} \n【来源】: {source_url}\n")
+            
         return "\n".join(results_str) if results_str else "暂无直接搜索结果。"
     except Exception as e:
         return f"搜索失败: {e}"
@@ -93,7 +124,7 @@ def search_info(query, days=7, max_results=20, include_domains=None):
 # ==========================================
 # 3. 提示词与简报生成
 # ==========================================
-def generate_briefing(client, model_name, is_gemini, comp_raw, weihai_raw, ind_data_dict, finance_raw, macro_raw, tech_raw):
+def generate_briefing(client, model_name, comp_raw, weihai_raw, ind_data_dict, finance_raw, macro_raw, tech_raw):
     ind_context = ""
     for ind, content in ind_data_dict.items():
         ind_context += f"--- 行业: {ind} ---\n{content}\n"
@@ -176,7 +207,7 @@ def generate_briefing(client, model_name, is_gemini, comp_raw, weihai_raw, ind_d
     <p style="text-align: center;">🤖我们下周再见🤖</p >
     """
     
-    if is_gemini: time.sleep(GEMINI_REQUEST_DELAY)
+    time.sleep(GEMINI_REQUEST_DELAY)
 
     try:
         response = client.chat.completions.create(
@@ -242,34 +273,13 @@ def send_email(subject, markdown_content):
 if __name__ == "__main__":
     print(f"-> 启动报告生成器，当前日期: {TODAY_STR} ...")
 
-    # 【新增逻辑】：优先级 Qwen > Custom > Gemini
-    if QWEN_API_KEY and QWEN_MODEL:
-        print(f"-> 正在使用 通义千问 (Qwen) 接口，模型: {QWEN_MODEL}")
-        client = OpenAI(
-            api_key=QWEN_API_KEY, 
-            base_url="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
-            timeout=600.0
-        )
-        model = QWEN_MODEL
-        is_gem = False
-    elif CUSTOM_API_KEY:
-        print(f"-> 正在使用 自定义 接口，模型: {CUSTOM_MODEL}")
-        client = OpenAI(
-            api_key=CUSTOM_API_KEY, 
-            base_url=CUSTOM_BASE_URL,
-            timeout=600.0
-        )
-        model = CUSTOM_MODEL
-        is_gem = False
-    else:
-        print(f"-> 正在使用 Gemini 接口，模型: {GEMINI_MODEL}")
-        client = OpenAI(
-            api_key=GEMINI_API_KEY, 
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            timeout=600.0
-        )
-        model = GEMINI_MODEL
-        is_gem = True
+    print(f"-> 正在使用 Gemini 接口，模型: {GEMINI_MODEL}")
+    client = OpenAI(
+        api_key=GEMINI_API_KEY, 
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        timeout=600.0
+    )
+    model = GEMINI_MODEL
 
     print(f"-> 搜集重点与优质产能企业...")
     target_or_str = TARGET_COMPANIES.replace(' ', ' OR ')
@@ -301,6 +311,6 @@ if __name__ == "__main__":
     tech_raw = search_info("(人工智能 OR 大语言模型 OR 机器人 OR 新能源) (前沿动向 OR 最新突破)", max_results=25, include_domains=TECH_MEDIA_DOMAINS)
     
     print("-> 智能新闻官正在撰写超级周报...")
-    briefing = generate_briefing(client, model, is_gem, comp_raw, weihai_raw, industry_data, finance_raw, macro_raw, tech_raw)
+    briefing = generate_briefing(client, model, comp_raw, weihai_raw, industry_data, finance_raw, macro_raw, tech_raw)
     
     send_email(f"【威海商业情报】{TODAY_STR}", briefing)
