@@ -2,9 +2,9 @@ name: Weekly Weihai Business Briefing (Pro Edition)
 
 on:
   schedule:
-    # 这里的 1 代表每周一。UTC时间凌晨1点 = 北京时间早上9点运行
+    # 每周一北京时间早上9点运行 (UTC时间凌晨1点)
     - cron: '0 1 * * 1'
-  workflow_dispatch: # 完美保留手动触发机制
+  workflow_dispatch: 
 
 jobs:
   run-agent:
@@ -19,44 +19,31 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        # 移除了不需要的 chinesecalendar
         run: |
           pip install requests openai markdown
 
       - name: Run Briefing Script
         env:
           # ==========================================
-          # 1. 业务定制变量 (在 Variables 中配置)
+          # 1. 业务定制变量 (在 GitHub Variables 中配置)
           # ==========================================
           TARGET_COMPANIES: ${{ vars.TARGET_COMPANIES }}
           TARGET_INDUSTRY: ${{ vars.TARGET_INDUSTRY }}
+          EMAIL_RECEIVERS: ${{ vars.EMAIL_RECEIVERS }}
           
           # ==========================================
-          # 2. 国产/备用模型配置 (可选)
-          # ==========================================
-          # 【新增】通义千问 Qwen 专属配置
-          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
-          QWEN_MODEL: ${{ vars.QWEN_MODEL || 'qwen-plus' }} 
-          
-          # 其他自定义大模型配置
-          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
-          CUSTOM_BASE_URL: ${{ vars.CUSTOM_BASE_URL }}
-          CUSTOM_MODEL: ${{ vars.CUSTOM_MODEL }}
-
-          # ==========================================
-          # 3. Gemini 原有配置 (主选)
+          # 2. 模型与搜索服务配置 (Secrets 配置)
           # ==========================================
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}
-          GEMINI_MODEL_FALLBACK: ${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash' }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
           GEMINI_REQUEST_DELAY: '3.0'
           
+          BOCHA_API_KEY: ${{ secrets.BOCHA_API_KEY }}
+          
           # ==========================================
-          # 4. 搜索与邮件配置
+          # 3. 邮件发送配置 (Secrets 配置)
           # ==========================================
-          SEARCH_API_KEY: ${{ secrets.SEARCH_API_KEY }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECEIVERS: ${{ secrets.EMAIL_RECEIVERS }}
           
         run: python main.py
