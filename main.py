@@ -23,7 +23,8 @@ raw_industry = os.getenv("TARGET_INDUSTRY") or "工程承包 橡胶轮胎 医疗
 INDUSTRY_LIST = [i for i in raw_industry.replace('、', ' ').replace('，', ' ').split() if i]
 
 BOCHA_API_KEY = os.getenv("BOCHA_API_KEY")
-BOCHA_AI_SEARCH_API_URL = "https://api.bochaai.com/v1/ai-search"
+# 替换为 Bocha Web Search 的 Endpoint
+BOCHA_WEB_SEARCH_API_URL = "https://api.bocha.cn/v1/web-search"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") 
@@ -42,28 +43,8 @@ GLOBAL_SEEN_URLS = set()
 OUTDATED_YEAR_PATTERN = re.compile(r'(201\d|202[0-5])')
 
 # ==========================================
-# 2. Bocha AI Search 请求与解析函数
+# 2. Bocha Web Search 请求与解析函数
 # ==========================================
-def _parse_bocha_response(response_dict):
-    """解析 Bocha AI Search 的纯文本网页结果，舍弃图片和模态卡"""
-    webpages = []
-    if "messages" in response_dict:
-        for message in response_dict["messages"]:
-            if message.get("content_type") == "webpage":
-                try:
-                    content = json.loads(message["content"])
-                    if "value" in content:
-                        for item in content["value"]:
-                            webpages.append({
-                                "name": item.get("name", ""),
-                                "url": item.get("url", ""),
-                                "snippet": item.get("snippet", ""),
-                                "summary": item.get("summary", "")
-                            })
-                except Exception:
-                    pass
-    return webpages
-
 def search_info(query, days=7, max_results=20, include_domains=None):
     global GLOBAL_SEEN_URLS
     
@@ -73,11 +54,11 @@ def search_info(query, days=7, max_results=20, include_domains=None):
     # 根据官方文档，域名使用 | 分隔
     include_str = "|".join(include_domains) if include_domains else ""
 
+    # Web Search 请求体
     payload = {
         "query": query,
         "freshness": freshness,
-        "answer": False, # 关闭大模型回答
-        "stream": False, # 不采用流式响应
+        "summary": True, # 开启文本摘要显示
         "count": min(max_results, 50) # 最多50条
     }
     
@@ -91,22 +72,30 @@ def search_info(query, days=7, max_results=20, include_domains=None):
 
     try:
         response = requests.post(
-            url=BOCHA_AI_SEARCH_API_URL, 
+            url=BOCHA_WEB_SEARCH_API_URL, 
             headers=headers, 
-            data=json.dumps(payload), 
+            json=payload, 
             timeout=15
         )
         response.raise_for_status()
         
         # 解析返回的网页参考资料
-        webpages = _parse_bocha_response(response.json())
+        resp_json = response.json()
+        
+        # 兼容可能有或没有 'data' 包装层的返回格式
+        data_block = resp_json.get("data", resp_json)
+        webpages = data_block.get("webPages", {}).get("value", [])
+        
         results_str = []
         
         for item in webpages:
             # 组合 snippet 和 summary 作为内容，并截断防长文本
-            raw_content = f"{item['snippet']} {item['summary']}".replace('\n', ' ')
+            snippet = item.get("snippet", "")
+            summary = item.get("summary", "")
+            raw_content = f"{snippet} {summary}".replace('\n', ' ')
             content = raw_content[:250] 
-            source_url = item['url'] or '无来源链接'
+            source_url = item.get("url", "无来源链接")
+            name = item.get("name", "无标题")
 
             # 去重与旧闻拦截
             if source_url in GLOBAL_SEEN_URLS and source_url != '无来源链接':
@@ -115,14 +104,14 @@ def search_info(query, days=7, max_results=20, include_domains=None):
                 continue
             
             GLOBAL_SEEN_URLS.add(source_url)
-            results_str.append(f"【标题】: {item['name']} \n【内容】: {content} \n【来源】: {source_url}\n")
+            results_str.append(f"【标题】: {name} \n【内容】: {content} \n【来源】: {source_url}\n")
             
         return "\n".join(results_str) if results_str else "暂无直接搜索结果。"
     except Exception as e:
         return f"搜索失败: {e}"
 
 # ==========================================
-# 3. 提示词与简报生成
+# 3. 提示词与简报生成 (原封不动保留)
 # ==========================================
 def generate_briefing(client, model_name, comp_raw, weihai_raw, ind_data_dict, finance_raw, macro_raw, tech_raw):
     ind_context = ""
