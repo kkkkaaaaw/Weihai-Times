@@ -4,6 +4,7 @@ import datetime
 import time
 import requests
 import json
+import re
 from openai import OpenAI
 import smtplib
 from email.mime.text import MIMEText
@@ -22,27 +23,35 @@ raw_industry = os.getenv("TARGET_INDUSTRY") or "工程承包 橡胶轮胎 医疗
 INDUSTRY_LIST = [i for i in raw_industry.replace('、', ' ').replace('，', ' ').split() if i]
 
 SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") 
-GEMINI_REQUEST_DELAY = float(os.getenv("GEMINI_REQUEST_DELAY", "3.0"))
 
+# 通义千问 (Qwen) 配置项 (通过环境变量/Secret读取，不写死)
+QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+QWEN_MODEL = os.getenv("QWEN_MODEL")
+
+# 自定义大模型配置项
 CUSTOM_API_KEY = os.getenv("CUSTOM_API_KEY")
 CUSTOM_BASE_URL = os.getenv("CUSTOM_BASE_URL")
 CUSTOM_MODEL = os.getenv("CUSTOM_MODEL")
+
+# Gemini 配置项 (保底)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") 
+GEMINI_REQUEST_DELAY = float(os.getenv("GEMINI_REQUEST_DELAY", "3.0"))
 
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVERS = os.getenv("EMAIL_RECEIVERS")
 SMTP_SERVER = "smtp.qq.com" 
 
-# 时间、年份及去重控制
 TODAY_STR = datetime.date.today().strftime("%Y年%m月%d日")
 CURRENT_YEAR = datetime.date.today().year
-PAST_YEARS = [str(CURRENT_YEAR - i) for i in range(1, 10)] # 生成往年列表：['2025', '2024', ...]
-GLOBAL_SEEN_URLS = set() # 全局 URL 去重池
+GLOBAL_SEEN_URLS = set()
+
+# 构建正则匹配模式：匹配 2010 到 2025 的任意年份数字
+OUTDATED_YEAR_PATTERN = re.compile(r'(201\d|202[0-5])')
 
 # ==========================================
-# 2. 增强搜索函数 (移除干扰词 + 暴力拦截 + 去重)
+# 2. 增强搜索函数 (正则拦截旧闻 + 全局去重 + 文本瘦身)
 # ==========================================
 def search_info(query, days=7, max_results=20, include_domains=None):
     global GLOBAL_SEEN_URLS
@@ -62,28 +71,19 @@ def search_info(query, days=7, max_results=20, include_domains=None):
         response = requests.post(url, json=payload).json()
         results_str = []
         for result in response.get('results', []):
-            content = result.get('content', '').replace('\n', ' ')
+            # 【瘦身防超时】：截断过长的网页内容，只取前250个字符供大模型参考
+            content = result.get('content', '').replace('\n', ' ')[:250] 
             source_url = result.get('url', '无来源链接')
 
-            # 防线1：全局去重，防止同一个URL被多次采纳
+            # 防线1：全局去重
             if source_url in GLOBAL_SEEN_URLS and source_url != '无来源链接':
                 continue
 
-            # 防线2：暴力拦截包含往年年份的 URL 和内容
-            is_outdated = False
-            for past_year in PAST_YEARS:
-                if past_year in source_url or f"{past_year}年" in content or f"{past_year}-" in content:
-                    is_outdated = True
-                    break
-            # 针对 20230206 这种连写日期格式的精准拦截
-            for past_year in PAST_YEARS:
-                if f"{past_year}0" in source_url or f"{past_year}1" in source_url:
-                    is_outdated = True
-                    break
-            
-            if is_outdated:
+            # 防线2：使用正则表达式无死角拦截旧闻 (如 20230206 会被直接抓出 2023)
+            # 如果 URL 里包含 2010-2025，或者内容里提到往年年份，直接抛弃
+            if OUTDATED_YEAR_PATTERN.search(source_url) or OUTDATED_YEAR_PATTERN.search(content):
                 continue
-
+            
             GLOBAL_SEEN_URLS.add(source_url)
             results_str.append(f"【内容】: {content} \n【来源】: {source_url}\n")
         return "\n".join(results_str) if results_str else "暂无直接搜索结果。"
@@ -139,7 +139,7 @@ def generate_briefing(client, model_name, is_gemini, comp_raw, weihai_raw, ind_d
         2. 本地银行（3条）：威海市辖区内开展业务的银行，关于跨境结算、对公业务、出口信贷等。
 
     五、 宏观与全球重点局势（强制生成 7 条）：
-        国内与国际政治经济、贸易局势重大新闻。
+        国内与国际政治经济、贸易局势、突发事件重大新闻。
 
     六、 科技前沿与大语言模型（强制生成 9 条）：
         全面汇总4条大语言模型最新焦点、2条中国科技进展（AI/机器人/新能源）及3条全球前沿动向。发布时间须为{TODAY_STR}的三日内，消息内事件的发生时间也须为{TODAY_STR}的三日内，严格审核。
@@ -242,21 +242,34 @@ def send_email(subject, markdown_content):
 if __name__ == "__main__":
     print(f"-> 启动报告生成器，当前日期: {TODAY_STR} ...")
 
-    if not CUSTOM_API_KEY:
+    # 【新增逻辑】：优先级 Qwen > Custom > Gemini
+    if QWEN_API_KEY and QWEN_MODEL:
+        print(f"-> 正在使用 通义千问 (Qwen) 接口，模型: {QWEN_MODEL}")
         client = OpenAI(
-            api_key=GEMINI_API_KEY, 
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=QWEN_API_KEY, 
+            base_url="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
             timeout=600.0
         )
-    else:
+        model = QWEN_MODEL
+        is_gem = False
+    elif CUSTOM_API_KEY:
+        print(f"-> 正在使用 自定义 接口，模型: {CUSTOM_MODEL}")
         client = OpenAI(
             api_key=CUSTOM_API_KEY, 
             base_url=CUSTOM_BASE_URL,
             timeout=600.0
         )
-        
-    model = GEMINI_MODEL if not CUSTOM_API_KEY else CUSTOM_MODEL
-    is_gem = not bool(CUSTOM_API_KEY)
+        model = CUSTOM_MODEL
+        is_gem = False
+    else:
+        print(f"-> 正在使用 Gemini 接口，模型: {GEMINI_MODEL}")
+        client = OpenAI(
+            api_key=GEMINI_API_KEY, 
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            timeout=600.0
+        )
+        model = GEMINI_MODEL
+        is_gem = True
 
     print(f"-> 搜集重点与优质产能企业...")
     target_or_str = TARGET_COMPANIES.replace(' ', ' OR ')
@@ -285,7 +298,7 @@ if __name__ == "__main__":
     ]
     
     print("-> 搜集科技前沿 (AI/大模型/机器人/新能源)...")
-    tech_raw = search_info("人工智能 AI大模型 机器人 新能源 全球前沿动向 最新突破", max_results=25, include_domains=TECH_MEDIA_DOMAINS)
+    tech_raw = search_info("(人工智能 OR 大语言模型 OR 机器人 OR 新能源) (前沿动向 OR 最新突破)", max_results=25, include_domains=TECH_MEDIA_DOMAINS)
     
     print("-> 智能新闻官正在撰写超级周报...")
     briefing = generate_briefing(client, model, is_gem, comp_raw, weihai_raw, industry_data, finance_raw, macro_raw, tech_raw)
