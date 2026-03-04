@@ -281,14 +281,14 @@ if __name__ == "__main__":
     comp_raw = f"【指定目标企业】\n{comp_raw_target}\n\n【威海其他出海企业】\n{comp_raw_weihai}"
     
     print("-> 搜集大威海政经...")
-    weihai_raw = search_info("(威海 OR 荣成 OR 文登 OR 乳山) (宏观经济 OR 招商引资 OR 产业政策 OR 外经贸 OR 新质生产力 OR 政府债务 OR 工作部署 OR 消费数据 OR 招聘会) -奇闻 -事故", max_results=25)
+    weihai_raw = search_info("(威海 OR 荣成 OR 文登 OR 乳山) (宏观经济 OR 招商引资 OR 产业政策 OR 外经贸 OR 新质生产力 OR 政府债务 OR 工作部署 OR 消费数据 OR 走访 OR 调研 OR 市长) -奇闻 -事故 -学校", max_results=25)
     
     industry_data = {}
     for ind in INDUSTRY_LIST:
         industry_data[ind] = search_info(f"{ind}行业 (市场规模 OR 最新政策 OR 发展趋势 OR 全球宏观 OR 最新动态)", max_results=25)
         
     print("-> 搜集金融与银行业务...")
-    finance_macro_raw = search_info("(LPR OR 存款准备金率 OR 美联储利率 OR 汇率变动 OR 跨境人民币)", max_results=20)
+    finance_macro_raw = search_info("(LPR OR 存款准备金率 OR 美联储利率 OR 汇率变动 OR 跨境人民币 OR 大宗 OR 美元 OR 石油 OR 黄金)", max_results=20)
     bank_raw = search_info("(威海 OR 荣成 OR 文登 OR 乳山) 银行 (跨境结算 OR 国际业务 OR 外汇便利化 OR 对公业务 OR 银企对接 OR 出口信贷) -零售 -个人", max_results=20)
     finance_raw = f"【金融宏观数据】\n{finance_macro_raw}\n\n【威海辖区银行业务】\n{bank_raw}"
     
