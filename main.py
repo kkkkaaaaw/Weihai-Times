@@ -137,12 +137,12 @@ def generate_briefing(client, model_name, comp_raw, weihai_raw, ind_data_dict, f
 
     【六大板块内容架构（基于下方素材池）】
     一、 重点企业动态（强制生成 15 条）：
-        【收录标准】：必须且只能是具体的实体企业。企业必须有明确的涉外属性（国际业务、海外投资、出口订单、外贸潜力）或重大的实体产能扩建。优先包含给定目标企业（{TARGET_COMPANIES}）的业务动态，不要采信复工复产、招聘厂房出租等事务性新闻信。
+        【收录标准】：必须且只能是具体的实体企业。企业必须有明确的涉外属性（国际业务、海外投资、出口订单、外贸潜力）或重大的实体产能扩建。优先包含给定目标企业（{TARGET_COMPANIES}）的业务动态，不要采信复工复产、招聘厂房出租等事务性新闻信息。
         严格排除以下5点内容，若素材属于此类，直接抛弃，宁可从素材池深挖也禁止用其凑数：
           1. 绝对禁止包含任何银行、金融机构（此类应归入第四部分）。
           2. 绝对禁止包含区域宏观经济、政府招商会议、工作动员大会（此类应归入第二部分）。
           3. 绝对禁止包含任何形式的“股价动态”、“股票价格”、“涨跌幅”新闻。
-          4. 绝对禁止包含纯国内本地生活服务类企业（如国内客运、饭店、国内文旅、学校、本地商店等）。
+          4. 绝对禁止包含纯国内本地生活服务类企业（如新闻内容包含国内客运、饭店、国内文旅、学校、本地商店等关键词，不予采信）。
           5. 绝对禁止同一条素材用于生成两条及以上的新闻。
         注意，企业必须严格限制在威海辖区内，绝对禁止纳入非威海的全国性科技公司！必须凑够15条，严禁写借口。
     
@@ -152,8 +152,8 @@ def generate_briefing(client, model_name, comp_raw, weihai_raw, ind_data_dict, f
         2. 民生与消费（最高限额 2 条）：国内消费市场、文旅活动、人才招聘等社会民生新闻【严格限制在 2 条以内】。
         若民生消费类素材不足，剩余名额全部由“核心政经与产业”补齐。绝对排斥社会奇闻、恶性事件。严禁写借口。
 
-    三、 行业风向（每个行业 2 条）：
-        禁止聚焦单一企业公关稿。每个行业配齐一内一外共两条新闻。新闻内容须为行业内最新突破、重大利好或利空、可能影响行业的重要事件及其影响。
+    三、 行业风向（强制生成每个行业 2 条）：
+        禁止聚焦单一企业公关稿。每个行业配齐一内一外共两条新闻。新闻内容须为行业内最新突破、重大利好或利空、可能影响行业的重要事件及其影响，限制采用研报摘要。
 
     四、 金融与银行（强制生成 8 条）：
         该板块要求如下：
@@ -276,8 +276,8 @@ if __name__ == "__main__":
 
     print(f"-> 搜集重点与优质产能企业...")
     target_or_str = TARGET_COMPANIES.replace(' ', ' OR ')
-    comp_raw_target = search_info(f"({target_or_str}) (签约 OR 中标 OR 财报 OR 出海 OR 布局 OR 产能) -股价 -涨停 -跌停 -股市", max_results=45)
-    comp_raw_weihai = search_info("(威海 OR 荣成 OR 文登 OR 乳山) 企业 (外贸 OR 出海 OR 跨境电商 OR 国际业务 OR 海外订单 OR 投资) -旅游 -文娱 -餐饮 -客运 -银行 -股价 -动员大会 -招聘 -房产", max_results=45)
+    comp_raw_target = search_info(f"({target_or_str}) (签约 OR 中标 OR 财报 OR 出海 OR 布局 OR 产能) -股价 -涨停 -跌停 -股市", max_results=55)
+    comp_raw_weihai = search_info("(威海 OR 荣成 OR 文登 OR 乳山) 企业 (外贸 OR 出海 OR 跨境电商 OR 国际业务 OR 海外订单 OR 投资) -旅游 -文娱 -餐饮 -客运 -银行 -股价 -动员大会 -招聘 -房产", max_results=65)
     comp_raw = f"【指定目标企业】\n{comp_raw_target}\n\n【威海其他出海企业】\n{comp_raw_weihai}"
     
     print("-> 搜集大威海政经...")
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     finance_raw = f"【金融宏观数据】\n{finance_macro_raw}\n\n【威海辖区银行业务】\n{bank_raw}"
     
     print("-> 搜集宏观局势...")
-    macro_raw = search_info("(中国宏观经济 OR 全球局势 OR 国际贸易 OR 出海政策 OR 突发事件 ) 最新新闻", max_results=25)
+    macro_raw = search_info("(中国宏观经济 OR 全球局势 OR 国际贸易 OR 出海政策 OR 突发事件 ) 最新新闻", max_results=35)
     
     TECH_MEDIA_DOMAINS = [
         "qbitai.com", "jiqizhixin.com", "36kr.com", "leiphone.com", "geekpark.net",
