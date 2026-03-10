@@ -313,7 +313,7 @@ if __name__ == "__main__":
     comp_raw = f"【指定目标企业】\n{comp_raw_target}\n\n【威海其他出海企业】\n{comp_raw_weihai}"
     
     print("-> 搜集大威海政经...")
-    weihai_raw = search_info("(威海 OR 荣成 OR 文登 OR 乳山) (宏观经济 OR 招商引资 OR 产业政策 OR 外经贸 OR 新质生产力 OR 政府债务 OR 工作部署 OR 消费数据 OR 走访 OR 调研 OR 市长) -奇闻 -事故 -学校", max_results=25)
+    weihai_raw = search_info("(威海 OR 荣成 OR 文登 OR 乳山) (宏观经济 OR 招商引资 OR 产业政策 OR 外经贸 OR 新质生产力 OR 政府债务 OR 工作部署 OR 消费数据 OR 走访 OR 调研 OR 市长 OR 书记) -奇闻 -事故 -学校", max_results=25)
     
     industry_data = {}
     for ind in INDUSTRY_LIST:
@@ -325,9 +325,16 @@ if __name__ == "__main__":
     bank_raw = search_info("(威海 OR 荣成 OR 文登 OR 乳山) 银行 (跨境结算 OR 国际业务 OR 外汇便利化 OR 对公业务 OR 银企对接 OR 出口信贷) -零售 -个人 -股价 -涨停", max_results=20)
     finance_raw = f"【金融宏观数据】\n{finance_macro_raw}\n\n【威海辖区银行业务】\n{bank_raw}"
     
-    print("-> 搜集宏观局势...")
-    # 把泛泛的词替换为具体的地缘和宏观实体词汇
-    macro_raw = search_info("(中国宏观经济 OR 进出口数据 OR 关税政策 OR 国际贸易 OR 美伊冲突 OR 中东局势 OR 俄乌局势 OR 美联储降息 OR 地缘政治 OR 南美局势) -股市 -A股 -大盘 -股票 -异常波动 -异动", max_results=45)
+    print("-> 搜集国内宏观与产业政策...")
+    # 永久常青词汇：绑定发改委、工信部、商务部等核心政策发源地，以及“产业规划/政策”这种长效词
+    macro_domestic = search_info("(中国宏观经济 OR 产业政策 OR 进出口数据 OR 发改委 OR 工信部 OR 商务部 OR 国务院 OR 财政部) (最新政策 OR 规划 OR 部署 OR 数据 OR 发布) -股市 -A股 -大盘 -炒股 -证券研报 -牛市 -异动", days=30, max_results=25)
+    
+    print("-> 搜集国际地缘与经贸局势...")
+    # 国际部分保持地缘和经贸的通用词汇
+    macro_intl = search_info("(全球局势 OR 国际贸易 OR 地缘政治 OR 关税政策 OR 突发事件 OR 冲突 OR 换届 OR 选举 OR 战争) -股市 -A股 -股票", days=30, max_results=25)
+    
+    # 将两个池子的数据物理拼接，喂给大模型
+    macro_raw = f"【国内宏观与产业政策素材池】\n{macro_domestic}\n\n【国际地缘与经贸局势素材池】\n{macro_intl}"
     
     TECH_MEDIA_DOMAINS = [
         "qbitai.com", "jiqizhixin.com", "36kr.com", "leiphone.com", "geekpark.net",
