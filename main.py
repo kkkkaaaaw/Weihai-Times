@@ -23,7 +23,8 @@ raw_industry = os.getenv("TARGET_INDUSTRY") or "工程承包 橡胶轮胎 医疗
 INDUSTRY_LIST = [i for i in raw_industry.replace('、', ' ').replace('，', ' ').split() if i]
 
 BOCHA_API_KEY = os.getenv("BOCHA_API_KEY")
-BOCHA_WEB_SEARCH_API_URL = "https://api.bocha.cn/v1/web-search"
+# 已替换为 Bocha AI Search 的 Endpoint
+BOCHA_AI_SEARCH_API_URL = "https://api.bochaai.com/v1/ai-search"
 
 # 替换为 DeepSeek 配置
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
@@ -53,7 +54,7 @@ JUNK_BLACKLIST = [
     # 3. 二级市场与炒股（新增对“异动公告”的精准狙击）
     "股价", "A股", "大盘", "涨停", "跌停", "超买", "超卖", "多空",
     "资金净流入", "资金净流出", "龙虎榜", "证券研报", "上行", "拐点", "持仓", "避险",
-    "异常波动", "异动公告", "股票交易", "竞价交易", "减持", "增持", "主力资金" # <-- 新增这些词
+    "异常波动", "异动公告", "股票交易", "竞价交易", "减持", "增持", "主力资金", "证券策略", "牛市", "熊市", "个股",
     
     # 4. 基础民生与社会治安
     "天气", "降雨", "气象", "婚宴", "餐饮", "幼儿园", "小学", "中学", "高考",
@@ -61,7 +62,7 @@ JUNK_BLACKLIST = [
 ]
 
 # ==========================================
-# 2. Bocha Web Search 请求与解析函数
+# 2. Bocha AI Search 请求与解析函数
 # ==========================================
 def search_info(query, days=7, max_results=20, include_domains=None):
     global GLOBAL_SEEN_URLS
@@ -72,8 +73,9 @@ def search_info(query, days=7, max_results=20, include_domains=None):
     payload = {
         "query": query,
         "freshness": freshness,
-        "summary": True, 
-        "count": min(max_results, 50) 
+        "answer": False, # 明确关闭大模型总结
+        "stream": False, # 明确关闭流式输出
+        "count": min(max_results, 50) # Bocha 官方限制单次最多50条
     }
     
     if include_str:
@@ -86,20 +88,30 @@ def search_info(query, days=7, max_results=20, include_domains=None):
 
     try:
         response = requests.post(
-            url=BOCHA_WEB_SEARCH_API_URL, 
+            url=BOCHA_AI_SEARCH_API_URL, 
             headers=headers, 
             json=payload, 
             timeout=15
         )
         response.raise_for_status()
-        
         resp_json = response.json()
-        data_block = resp_json.get("data", resp_json)
-        webpages = data_block.get("webPages", {}).get("value", [])
         
+        # --- 引入 Bocha AI Search SDK 的特定解析逻辑 ---
+        webpages = []
+        if "messages" in resp_json:
+            for message in resp_json["messages"]:
+                if message.get("content_type") == "webpage":
+                    try:
+                        content = json.loads(message["content"])
+                        if "value" in content:
+                            webpages.extend(content["value"])
+                    except Exception:
+                        pass
+        # -----------------------------------------------
+
         results_str = []
         
-        for item in webpages:  # 确保这里前面是标准的 8 个空格
+        for item in webpages:
             snippet = item.get("snippet", "")
             summary = item.get("summary", "")
             raw_content = f"{snippet} {summary}".replace('\n', ' ')
@@ -107,16 +119,16 @@ def search_info(query, days=7, max_results=20, include_domains=None):
             source_url = item.get("url", "无来源链接")
             name = item.get("name", "无标题")
 
-            # --- 新增的物理黑名单拦截逻辑 ---
+            # 物理黑名单拦截逻辑
             is_junk = False
             for junk_word in JUNK_BLACKLIST:
                 if junk_word in name or junk_word in content:
                     is_junk = True
                     break
             if is_junk:
-                continue # 只要触碰黑名单，直接抛弃，不喂给大模型
-            # -------------------------------
+                continue
 
+            # 全局去重与旧闻拦截
             if source_url in GLOBAL_SEEN_URLS and source_url != '无来源链接':
                 continue
             if OUTDATED_YEAR_PATTERN.search(source_url) or OUTDATED_YEAR_PATTERN.search(content):
@@ -320,20 +332,16 @@ if __name__ == "__main__":
         industry_data[ind] = search_info(f"{ind}行业 (市场规模 OR 最新政策 OR 发展趋势 OR 全球宏观 OR 最新动态)", max_results=25)
         
     print("-> 搜集金融与银行业务...")
-    # 增加 -A股 -炒股 -超买 -技术分析 等排除词
     finance_macro_raw = search_info("(LPR OR 存款准备金率 OR 美联储利率 OR 汇率变动 OR 跨境人民币 OR 大宗 OR 美元 OR 石油 OR 黄金) -A股 -炒股 -股市 -超买 -超卖 -技术分析", max_results=20)
     bank_raw = search_info("(威海 OR 荣成 OR 文登 OR 乳山) 银行 (跨境结算 OR 国际业务 OR 外汇便利化 OR 对公业务 OR 银企对接 OR 出口信贷) -零售 -个人 -股价 -涨停", max_results=20)
     finance_raw = f"【金融宏观数据】\n{finance_macro_raw}\n\n【威海辖区银行业务】\n{bank_raw}"
     
     print("-> 搜集国内宏观与产业政策...")
-    # 永久常青词汇：绑定发改委、工信部、商务部等核心政策发源地，以及“产业规划/政策”这种长效词
     macro_domestic = search_info("(中国宏观经济 OR 产业政策 OR 进出口数据 OR 发改委 OR 工信部 OR 商务部 OR 国务院 OR 财政部) (最新政策 OR 规划 OR 部署 OR 数据 OR 发布) -股市 -A股 -大盘 -炒股 -证券研报 -牛市 -异动", days=30, max_results=25)
     
     print("-> 搜集国际地缘与经贸局势...")
-    # 国际部分保持地缘和经贸的通用词汇
     macro_intl = search_info("(全球局势 OR 国际贸易 OR 地缘政治 OR 关税政策 OR 突发事件 OR 冲突 OR 换届 OR 选举 OR 战争) -股市 -A股 -股票", days=30, max_results=25)
     
-    # 将两个池子的数据物理拼接，喂给大模型
     macro_raw = f"【国内宏观与产业政策素材池】\n{macro_domestic}\n\n【国际地缘与经贸局势素材池】\n{macro_intl}"
     
     TECH_MEDIA_DOMAINS = [
