@@ -277,4 +277,54 @@ def send_email(subject, markdown_content):
             print(f"❌ 邮件发送最终失败: {e2}")
 
 # ==========================================
-# 5
+# 5. 执行主流程
+# ==========================================
+if __name__ == "__main__":
+    print(f"-> 启动报告生成器，当前日期: {TODAY_STR} ...")
+
+    print(f"-> 正在使用 DeepSeek 接口，模型: {DEEPSEEK_MODEL}")
+    client = OpenAI(
+        api_key=DEEPSEEK_API_KEY, 
+        base_url="https://api.deepseek.com",
+        timeout=600.0
+    )
+    model = DEEPSEEK_MODEL
+
+    print(f"-> 搜集重点与优质产能企业...")
+    target_or_str = TARGET_COMPANIES.replace(' ', ' OR ')
+    comp_raw_target = search_info(f"{target_or_str} (签约 OR 中标 OR 财报 OR 出海 OR 产能) -股市", max_results=40)
+    comp_raw_weihai = search_info("威海 企业 (外贸 OR 出海 OR 跨境电商 OR 国际业务 OR 投资) -旅游 -餐饮", max_results=40)
+    comp_raw = f"【指定目标企业】\n{comp_raw_target}\n\n【威海其他出海企业】\n{comp_raw_weihai}"
+    
+    print("-> 搜集大威海政经...")
+    weihai_raw = search_info("威海 (宏观经济 OR 招商引资 OR 产业政策 OR 外经贸 OR 新质生产力 OR 项目) -学校", max_results=35)
+    
+    industry_data = {}
+    for ind in INDUSTRY_LIST:
+        industry_data[ind] = search_info(f"{ind}行业 (市场规模 OR 政策 OR 发展趋势 OR 最新动态) -A股", max_results=20)
+        
+    print("-> 搜集金融与银行业务...")
+    finance_macro_raw = search_info("LPR OR 美联储利率 OR 汇率变动 OR 大宗商品 OR 关税", max_results=20)
+    bank_raw = search_info("威海 银行 (跨境结算 OR 国际业务 OR 对公业务 OR 出口信贷) -零售", max_results=20)
+    finance_raw = f"【金融宏观数据】\n{finance_macro_raw}\n\n【威海辖区银行业务】\n{bank_raw}"
+    
+    print("-> 搜集国内宏观与产业政策...")
+    macro_domestic = search_info("国家发改委 OR 工信部 OR 商务部 OR 国务院 (产业政策 OR 宏观经济 OR 进出口数据) 最新", max_results=25)
+    
+    print("-> 搜集国际地缘与经贸局势...")
+    macro_intl = search_info("国际贸易 OR 地缘政治 OR 关税政策 OR 美伊局势 OR 俄乌局势", max_results=25)
+    
+    macro_raw = f"【国内宏观与产业政策素材池】\n{macro_domestic}\n\n【国际地缘与经贸局势素材池】\n{macro_intl}"
+    
+    TECH_MEDIA_DOMAINS = [
+        "qbitai.com", "jiqizhixin.com", "36kr.com", "leiphone.com", "geekpark.net",
+        "techcrunch.com", "venturebeat.com", "theverge.com"
+    ]
+    
+    print("-> 搜集科技前沿 (AI/大模型/机器人/新能源)...")
+    tech_raw = search_info("AI OR 大模型 OR 机器人 OR 新能源 最新突破", max_results=25, include_domains=TECH_MEDIA_DOMAINS)
+    
+    print("-> 智能新闻官正在撰写超级周报...")
+    briefing = generate_briefing(client, model, comp_raw, weihai_raw, industry_data, finance_raw, macro_raw, tech_raw)
+    
+    send_email(f"【威海商业情报】{TODAY_STR}", briefing)
